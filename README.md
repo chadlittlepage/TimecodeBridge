@@ -86,6 +86,10 @@ See [docs/PROTOCOL.md](docs/PROTOCOL.md) for the full WebSocket protocol spec.
 | `TC_BRIDGE_LTC_PORT` | `9878` | LTC listener TCP port |
 | `LTC_AUDIO_DEVICE` | `10` | ffmpeg audio device index for BlackHole |
 
+## Known Limitations
+
+\* LTC reverse playback is choppy — libltc decodes approximately half the frames when playing backwards. This is inherent to the LTC format (Manchester biphase encoding is designed for forward reading). Forward playback is frame-accurate. This matches the behavior of hardware LTC readers playing tape in reverse.
+
 ## Project Structure
 
 ```
