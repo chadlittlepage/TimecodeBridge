@@ -1,99 +1,39 @@
 #!/usr/bin/env python3
-"""DaVinci Timecode Bridge — WebSocket server that polls Resolve and broadcasts timecode."""
+"""DaVinci Timecode Bridge — WebSocket server that broadcasts Resolve timecode over LAN.
+
+Architecture:
+  resolve_console_script.py (runs INSIDE Resolve's Py3 console, has native API access)
+       | TCP port 9877 (JSON lines)
+       v
+  server.py (this file, asyncio event loop, WebSocket broadcast)
+       | WebSocket port 9876
+       v
+  browser clients (index.html) — also decode LTC audio locally for live playback
+"""
 
 import asyncio
 import json
 import os
-import sys
-import time
-from pathlib import Path
 
-import websockets
-
-# ---------------------------------------------------------------------------
-# DaVinci Resolve scripting module discovery
-# ---------------------------------------------------------------------------
-_RESOLVE_MOD_PATHS = [
-    # macOS
-    "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules",
-    # Linux
-    "/opt/resolve/Developer/Scripting/Modules",
-    # Windows
-    r"C:\ProgramData\Blackmagic Design\DaVinci Resolve\Support\Developer\Scripting\Modules",
-]
-
-def _ensure_resolve_path() -> None:
-    for p in _RESOLVE_MOD_PATHS:
-        if os.path.isdir(p) and p not in sys.path:
-            sys.path.insert(0, p)
-
-_ensure_resolve_path()
-
-try:
-    import DaVinciResolveScript as dvr  # type: ignore[import-untyped]
-except ImportError:
-    dvr = None
+from websockets.asyncio.server import serve
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 HOST = os.environ.get("TC_BRIDGE_HOST", "0.0.0.0")
 PORT = int(os.environ.get("TC_BRIDGE_PORT", "9876"))
-POLL_INTERVAL = float(os.environ.get("TC_BRIDGE_POLL_MS", "100")) / 1000.0  # seconds
-
-# ---------------------------------------------------------------------------
-# Resolve connection
-# ---------------------------------------------------------------------------
-
-def connect_resolve():
-    """Connect to the running DaVinci Resolve instance. Returns (resolve, project, timeline) or raises."""
-    if dvr is None:
-        raise RuntimeError(
-            "DaVinciResolveScript module not found. "
-            "Make sure DaVinci Resolve is installed and the scripting modules are accessible."
-        )
-    resolve = dvr.scriptapp("Resolve")
-    if resolve is None:
-        raise RuntimeError("Could not connect to DaVinci Resolve. Is it running?")
-    pm = resolve.GetProjectManager()
-    project = pm.GetCurrentProject()
-    if project is None:
-        raise RuntimeError("No project is open in DaVinci Resolve.")
-    timeline = project.GetCurrentTimeline()
-    if timeline is None:
-        raise RuntimeError("No timeline is open in DaVinci Resolve.")
-    return resolve, project, timeline
-
-
-def get_timeline_fps(timeline) -> float:
-    fps_str = timeline.GetSetting("timelineFrameRate")
-    return float(fps_str) if fps_str else 24.0
-
-
-def get_timeline_info(project, timeline) -> dict:
-    """Gather static timeline metadata."""
-    return {
-        "project": project.GetName(),
-        "timeline": timeline.GetName(),
-        "fps": get_timeline_fps(timeline),
-        "startTC": timeline.GetStartTimecode(),
-    }
+RESOLVE_HOST = os.environ.get("TC_BRIDGE_RESOLVE_HOST", "localhost")
+RESOLVE_PORT = int(os.environ.get("TC_BRIDGE_RESOLVE_PORT", "9877"))
+VERSION = "2.0"
 
 # ---------------------------------------------------------------------------
 # WebSocket server
 # ---------------------------------------------------------------------------
 
-CLIENTS: set[websockets.WebSocketServerProtocol] = set()
-
-
-async def register(ws: websockets.WebSocketServerProtocol) -> None:
-    CLIENTS.add(ws)
-    print(f"[+] Client connected ({len(CLIENTS)} total)")
-
-
-async def unregister(ws: websockets.WebSocketServerProtocol) -> None:
-    CLIENTS.discard(ws)
-    print(f"[-] Client disconnected ({len(CLIENTS)} total)")
+CLIENTS: set = set()
+_latest_timeline_info: str | None = None
+_latest_timecode: str | None = None
+_latest_markers: str | None = None
 
 
 async def broadcast(message: str) -> None:
@@ -104,81 +44,97 @@ async def broadcast(message: str) -> None:
         )
 
 
-async def handler(ws: websockets.WebSocketServerProtocol, path: str = "") -> None:
-    await register(ws)
+async def handler(ws) -> None:
+    CLIENTS.add(ws)
+    print(f"[+] Client connected from {ws.remote_address} ({len(CLIENTS)} total)", flush=True)
     try:
-        # Send current timeline info on connect
-        try:
-            _, project, timeline = connect_resolve()
-            info = get_timeline_info(project, timeline)
-            await ws.send(json.dumps({"type": "timeline_info", **info}))
-        except RuntimeError:
-            pass
+        # Send hello + cached state
+        await ws.send(json.dumps({"type": "hello", "version": VERSION, "server": "TimecodeBridge"}))
+        if _latest_timeline_info:
+            await ws.send(_latest_timeline_info)
+        if _latest_markers:
+            await ws.send(_latest_markers)
+        if _latest_timecode:
+            await ws.send(_latest_timecode)
 
-        # Keep connection alive; incoming messages ignored for now
         async for _ in ws:
             pass
+    except Exception as e:
+        print(f"[!] Handler error: {e}", flush=True)
     finally:
-        await unregister(ws)
+        CLIENTS.discard(ws)
+        print(f"[-] Client disconnected ({len(CLIENTS)} total)", flush=True)
 
 
-async def poll_timecode() -> None:
-    """Poll Resolve for the current timecode and broadcast to all clients."""
-    last_tc = None
-    last_timeline_name = None
+# ---------------------------------------------------------------------------
+# TCP reader — connects to the Resolve console script
+# ---------------------------------------------------------------------------
+
+async def read_resolve_tcp() -> None:
+    global _latest_timeline_info, _latest_timecode, _latest_markers
 
     while True:
         try:
-            resolve, project, timeline = connect_resolve()
-            tc = timeline.GetCurrentTimecode()
-            timeline_name = timeline.GetName()
+            print(f"[resolve] Connecting to {RESOLVE_HOST}:{RESOLVE_PORT}...", flush=True)
+            reader, writer = await asyncio.open_connection(RESOLVE_HOST, RESOLVE_PORT)
+            print(f"[resolve] Connected!", flush=True)
 
-            # Detect timeline switch
-            if timeline_name != last_timeline_name:
-                last_timeline_name = timeline_name
-                info = get_timeline_info(project, timeline)
-                await broadcast(json.dumps({"type": "timeline_info", **info}))
+            while True:
+                line = await reader.readline()
+                if not line:
+                    print("[resolve] Connection closed by Resolve", flush=True)
+                    break
 
-            # Only broadcast on change
-            if tc != last_tc:
-                last_tc = tc
-                msg = json.dumps({
-                    "type": "timecode",
-                    "tc": tc,
-                    "ts": time.time(),
-                })
-                await broadcast(msg)
+                raw = line.decode().strip()
+                if not raw:
+                    continue
 
-        except RuntimeError as e:
-            # Resolve not connected / no timeline — broadcast status
-            if last_tc is not None:
-                last_tc = None
-                await broadcast(json.dumps({"type": "error", "message": str(e)}))
+                try:
+                    data = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
 
-        await asyncio.sleep(POLL_INTERVAL)
+                # Add source tag to timecode messages
+                msg_type = data.get("type")
+                if msg_type == "timecode":
+                    data["source"] = "api"
+                    raw = json.dumps(data)
+                    _latest_timecode = raw
+                elif msg_type == "timeline_info":
+                    _latest_timeline_info = raw
+                    print(f"[resolve] {data.get('project')} / {data.get('timeline')} @ {data.get('fps')}fps", flush=True)
+                elif msg_type == "markers":
+                    _latest_markers = raw
+                    print(f"[resolve] {len(data.get('markers', []))} markers", flush=True)
+                elif msg_type == "error":
+                    print(f"[resolve] Error: {data.get('message')}", flush=True)
+
+                await broadcast(raw)
+
+        except (ConnectionRefusedError, OSError) as e:
+            print(f"[resolve] Cannot reach Resolve console script ({e}). Retrying in 2s...", flush=True)
+        except Exception as e:
+            print(f"[resolve] Error: {e}. Retrying in 2s...", flush=True)
+
+        await asyncio.sleep(2)
 
 
 async def main() -> None:
-    print(f"TimecodeBridge server starting on ws://{HOST}:{PORT}")
-    print(f"Poll interval: {POLL_INTERVAL * 1000:.0f}ms")
-    print("Waiting for Resolve connection...")
+    print(f"TimecodeBridge v{VERSION}", flush=True)
+    print(f"WebSocket: ws://{HOST}:{PORT}", flush=True)
+    print(f"Resolve TCP: {RESOLVE_HOST}:{RESOLVE_PORT}", flush=True)
 
-    server = await websockets.serve(handler, HOST, PORT)
+    async with serve(handler, HOST, PORT):
+        reader_task = asyncio.create_task(read_resolve_tcp())
 
-    # Start polling in parallel
-    poll_task = asyncio.create_task(poll_timecode())
+        print("Press Ctrl+C to stop.\n", flush=True)
 
-    print(f"Server running. Connect a browser to http://<this-machine-ip>:{PORT}/")
-    print("Press Ctrl+C to stop.\n")
-
-    try:
-        await asyncio.Future()  # run forever
-    except asyncio.CancelledError:
-        pass
-    finally:
-        poll_task.cancel()
-        server.close()
-        await server.wait_closed()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            pass
+        finally:
+            reader_task.cancel()
 
 
 if __name__ == "__main__":
