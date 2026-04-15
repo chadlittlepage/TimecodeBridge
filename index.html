@@ -55,7 +55,6 @@
 
     .meta span { color: #4a556c; }
 
-    /* Source badge */
     #source-badge {
       display: inline-block;
       margin-top: 1.2rem;
@@ -71,7 +70,6 @@
     #source-badge.ltc { background: #1a3520; color: #4caf50; }
     #source-badge.none { background: #2a2a3e; color: #555; }
 
-    /* Status */
     #status {
       position: fixed;
       top: 1rem;
@@ -86,7 +84,6 @@
     #status.disconnected { color: #f44336; }
     #status.connecting { color: #ff9800; }
 
-    /* Controls panel */
     .controls {
       position: fixed;
       bottom: 1rem;
@@ -94,17 +91,11 @@
       font-size: 0.75rem;
       color: #444;
       display: flex;
-      flex-direction: column;
-      gap: 0.6rem;
-    }
-
-    .control-row {
-      display: flex;
       align-items: center;
       gap: 0.3rem;
     }
 
-    .controls input, .controls select {
+    .controls input {
       background: #2a2a3e;
       border: 1px solid #333;
       color: #e0e0e0;
@@ -112,10 +103,8 @@
       border-radius: 3px;
       font-family: inherit;
       font-size: 0.75rem;
+      width: 220px;
     }
-
-    .controls input { width: 220px; }
-    .controls select { width: 180px; }
 
     .controls button {
       background: #4a556c;
@@ -129,9 +118,6 @@
     }
 
     .controls button:hover { background: #5a6580; }
-    .controls button.active { background: #2e7d32; }
-    .controls button.active:hover { background: #388e3c; }
-
     .controls label { color: #666; margin-right: 0.3rem; }
 
     .copyright {
@@ -158,18 +144,14 @@
   </div>
 
   <div class="controls">
-    <div class="control-row">
-      <label>WS:</label>
-      <input id="wsUrl" type="text" placeholder="ws://192.168.1.x:9876" />
-      <button onclick="reconnectWS()">Connect</button>
-    </div>
+    <label>WS:</label>
+    <input id="wsUrl" type="text" placeholder="ws://192.168.1.x:9876" />
+    <button onclick="reconnectWS()">Connect</button>
   </div>
 
   <div class="copyright">&copy; 2026 Chad Littlepage</div>
 
-  <script src="browser/ltc-decoder.js"></script>
   <script>
-    // ---- DOM refs ----
     const tcEl = document.getElementById("timecode");
     const statusEl = document.getElementById("status");
     const projectEl = document.getElementById("project");
@@ -177,10 +159,7 @@
     const fpsEl = document.getElementById("fps");
     const wsUrlInput = document.getElementById("wsUrl");
     const badgeEl = document.getElementById("source-badge");
-    const ltcDeviceSelect = document.getElementById("ltcDevice");
-    const ltcBtn = document.getElementById("ltcBtn");
 
-    // ---- State ----
     const state = {
       api: { tc: null, ts: 0 },
       ltc: { tc: null, ts: 0 },
@@ -188,11 +167,8 @@
 
     let ws = null;
     let reconnectTimer = null;
-    const ltcDecoder = new LTCDecoder();
 
-    // ---- Source merge ----
-    // LTC is preferred when fresh (< 500ms old).
-    // API is used when stopped/scrubbing (LTC goes stale).
+    // LTC preferred when fresh (< 500ms), API when stopped/scrubbing
     function updateDisplay() {
       const now = Date.now();
       const ltcFresh = (now - state.ltc.ts) < 500;
@@ -214,13 +190,10 @@
       badgeEl.className = source;
     }
 
-    // Refresh display periodically so LTC→API fallback happens promptly when playback stops
     setInterval(updateDisplay, 250);
 
-    // ---- Path A: WebSocket ----
     function defaultWsUrl() {
-      const host = location.hostname || "localhost";
-      return `ws://${host}:9876`;
+      return `ws://${location.hostname || "localhost"}:9876`;
     }
 
     wsUrlInput.value = localStorage.getItem("tc_bridge_url") || defaultWsUrl();
@@ -245,7 +218,7 @@
 
       ws.onclose = () => {
         setStatus("disconnected", "disconnected");
-        if (!state.ltc.receiving) tcEl.classList.add("stale");
+        tcEl.classList.add("stale");
         clearTimeout(reconnectTimer);
         reconnectTimer = setTimeout(() => connectWS(url), 2000);
       };
@@ -271,8 +244,6 @@
           projectEl.textContent = data.project || "--";
           timelineEl.textContent = data.timeline || "--";
           fpsEl.textContent = data.fps || "--";
-        } else if (data.type === "error") {
-          if (!state.ltc.receiving) tcEl.classList.add("stale");
         }
       };
     }
@@ -283,61 +254,7 @@
     }
 
     wsUrlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") reconnectWS(); });
-
-    // ---- Path B: LTC Audio ----
-    ltcDecoder.onTimecode = (tc) => {
-      state.ltc.tc = tc;
-      state.ltc.ts = Date.now();
-      tcEl.classList.remove("stale");
-      updateDisplay();
-    };
-
-    ltcDecoder.onStateChange = (receiving) => {
-      state.ltc.receiving = receiving;
-      updateDisplay();
-    };
-
-    async function populateDevices() {
-      const devices = await LTCDecoder.listDevices();
-      // Clear existing options except the placeholder
-      ltcDeviceSelect.length = 1;
-      for (const d of devices) {
-        const opt = document.createElement("option");
-        opt.value = d.deviceId;
-        opt.textContent = d.label || `Audio Input ${d.deviceId.slice(0, 8)}`;
-        // Highlight likely virtual devices
-        if (/blackhole|sonobus|virtual|loopback/i.test(d.label)) {
-          opt.textContent = "* " + opt.textContent;
-        }
-        ltcDeviceSelect.appendChild(opt);
-      }
-    }
-
-    async function toggleLTC() {
-      if (ltcDecoder.active) {
-        ltcDecoder.stop();
-        state.ltc.active = false;
-        state.ltc.receiving = false;
-        ltcBtn.textContent = "Enable LTC";
-        ltcBtn.classList.remove("active");
-        updateDisplay();
-      } else {
-        const deviceId = ltcDeviceSelect.value || undefined;
-        try {
-          await ltcDecoder.start(deviceId);
-          state.ltc.active = true;
-          ltcBtn.textContent = "Disable LTC";
-          ltcBtn.classList.add("active");
-          updateDisplay();
-        } catch (err) {
-          alert("LTC capture failed: " + err.message);
-        }
-      }
-    }
-
-    // ---- Init ----
     connectWS(wsUrlInput.value);
-    populateDevices();
   </script>
 </body>
 </html>

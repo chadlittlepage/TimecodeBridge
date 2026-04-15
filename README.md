@@ -3,8 +3,8 @@
 Real-time DaVinci Resolve timecode over WebSocket for browsers on your LAN.
 
 Two sync paths that work together:
-- **Path A (API):** Resolve scripting API polled via console script. Accurate when stopped/scrubbing.
-- **Path B (LTC):** Fairlight LTC audio decoded in the browser via WebAssembly. Frame-accurate during playback.
+- **API (stopped/scrubbing):** Resolve scripting API polled via console script, written to a state file.
+- **LTC (playback):** Fairlight LTC audio decoded server-side via libltc + ffmpeg from BlackHole. Frame-accurate.
 
 The browser merges both: LTC during playback, API when stopped.
 
@@ -12,28 +12,44 @@ The browser merges both: LTC during playback, API when stopped.
 
 ```
 PATH A (metadata + stopped TC):
-  Resolve Py3 Console ──TCP:9877──> server.py ──WS:9876──> Browser
+  Resolve Py3 Console ──> /tmp/tcb_resolve_state.json ──> server.py ──WS:9876──> Browser
 
 PATH B (live playback TC):
-  Resolve Fairlight LTC ──> BlackHole ──[SonoBus]──> Browser getUserMedia
-                                                       └──> LTC.wasm decode
+  Resolve Fairlight LTC ──> BlackHole 2ch ──> ffmpeg ──> ltc_listener.py (libltc)
+  ──TCP:9878──> server.py ──WS:9876──> Browser
 ```
+
+## Requirements
+
+- Python 3.10+
+- DaVinci Resolve (running, with a project/timeline open)
+- `websockets` Python package
+- `libltc` and `ltc-tools`: `brew install libltc ltc-tools`
+- `ffmpeg`: `brew install ffmpeg`
+- `BlackHole 2ch`: `brew install blackhole-2ch` (requires sudo + reboot)
+- Multi-Output Device in Audio MIDI Setup (BlackHole + speakers)
+- LTC wav file on a Fairlight audio track (see Setup)
 
 ## Quick Start
 
 ```bash
 pip install websockets
 
-# 1. Start the server
+# 1. Start the WebSocket server
 python server.py
 
-# 2. In Resolve, open Workspace > Console > Py3, paste:
-exec(open("resolve_console_script.py").read())
+# 2. Start the LTC listener
+python ltc_listener.py
 
-# 3. Open index.html in a browser
+# 3. In Resolve, open Workspace > Console > Py3, paste:
+exec(open("/path/to/TimecodeBridge/resolve_console_script.py").read())
+
+# 4. Serve and open the browser client
+python -m http.server 8080
+# Open http://localhost:8080
 ```
 
-For real-time playback sync, install BlackHole and configure Fairlight LTC output. See [docs/SETUP.md](docs/SETUP.md).
+See [docs/SETUP.md](docs/SETUP.md) for BlackHole, Multi-Output Device, and Fairlight LTC track setup.
 
 ## For Developers
 
@@ -44,9 +60,8 @@ Hook into the timecode stream from your own app:
 <script src="lib/tcbridge.js"></script>
 <script>
   const bridge = new TimecodeBridge("ws://192.168.1.100:9876");
-  bridge.on("timecode", (data) => console.log(data.tc));
+  bridge.on("timecode", (data) => console.log(data.tc, data.source));
   bridge.on("timeline", (info) => console.log(info.project));
-  bridge.on("markers", (markers) => console.log(markers));
 </script>
 ```
 
@@ -67,33 +82,24 @@ See [docs/PROTOCOL.md](docs/PROTOCOL.md) for the full WebSocket protocol spec.
 |---|---|---|
 | `TC_BRIDGE_HOST` | `0.0.0.0` | WebSocket bind address |
 | `TC_BRIDGE_PORT` | `9876` | WebSocket port |
-| `TC_BRIDGE_RESOLVE_HOST` | `localhost` | Resolve console script hostname |
-| `TC_BRIDGE_RESOLVE_PORT` | `9877` | Resolve console script TCP port |
+| `TC_BRIDGE_LTC_HOST` | `localhost` | LTC listener hostname |
+| `TC_BRIDGE_LTC_PORT` | `9878` | LTC listener TCP port |
+| `LTC_AUDIO_DEVICE` | `10` | ffmpeg audio device index for BlackHole |
 
 ## Project Structure
 
 ```
-server.py                    WebSocket relay server
-resolve_console_script.py    Runs inside Resolve Py3 console
-index.html                   Browser client (timecode display + LTC decode)
-browser/
-  ltc-decoder.js             Web Audio + LTC.wasm integration
-  wasm/                      Pre-built LTC decoder (libltc → WebAssembly)
+server.py                    WebSocket relay (file watcher + LTC TCP reader)
+ltc_listener.py              LTC decoder (ffmpeg + libltc via ctypes)
+resolve_console_script.py    Runs inside Resolve Py3 console (file writer)
+index.html                   Browser client
 lib/
   tcbridge.js                JS client library (zero deps)
   tcbridge.py                Python client library
 docs/
   PROTOCOL.md                WebSocket protocol spec
-  SETUP.md                   BlackHole + SonoBus + Fairlight setup
+  SETUP.md                   BlackHole + Fairlight setup guide
 examples/
   example-consumer.html      Minimal JS consumer
   example-consumer.py        Minimal Python consumer
 ```
-
-## Requirements
-
-- Python 3.10+
-- DaVinci Resolve (running, with a project/timeline open)
-- `websockets` Python package
-- BlackHole 2ch (optional, for LTC path): `brew install blackhole-2ch`
-- SonoBus (optional, for LAN LTC): [sonobus.net](https://sonobus.net)
