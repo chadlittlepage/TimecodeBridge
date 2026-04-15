@@ -65,13 +65,38 @@ def _tcb_poll():
                     f.write(str(e))
             except Exception:
                 pass
-        time.sleep(0.1)
+        time.sleep(0.033)
 
 
 # Stop previous poll thread if re-running
 _G.running = False
 time.sleep(0.2)
 _G.running = True
+
+# Write initial state immediately on main thread (avoids slow first scrub)
+try:
+    r = _G.resolve_ref
+    pm = r.GetProjectManager()
+    proj = pm.GetCurrentProject()
+    if proj:
+        tl = proj.GetCurrentTimeline()
+        if tl:
+            fps_str = tl.GetSetting("timelineFrameRate")
+            state = {
+                "tc": tl.GetCurrentTimecode(),
+                "project": proj.GetName(),
+                "timeline": tl.GetName(),
+                "fps": float(fps_str) if fps_str else 24.0,
+                "startTC": tl.GetStartTimecode(),
+                "ts": time.time(),
+                "tl_changed": True,
+            }
+            tmp = _G.STATE_FILE + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(state, f)
+            os.replace(tmp, _G.STATE_FILE)
+except Exception:
+    pass
 
 _G.threading_ref.Thread(target=_tcb_poll, daemon=True).start()
 print(f"[TCB] Writing state to {_G.STATE_FILE}")

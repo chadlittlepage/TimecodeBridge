@@ -110,7 +110,7 @@ async def watch_resolve_file() -> None:
         except (json.JSONDecodeError, OSError):
             pass
 
-        await asyncio.sleep(0.05)  # check file every 50ms
+        await asyncio.sleep(0.02)  # check file every 20ms
 
 
 # ---------------------------------------------------------------------------
