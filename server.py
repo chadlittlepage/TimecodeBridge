@@ -1,19 +1,15 @@
 #!/usr/bin/env python3
-"""DaVinci Timecode Bridge — WebSocket server that broadcasts Resolve timecode over LAN.
+"""DaVinci Timecode Bridge v2.1 — WebSocket server.
 
-Architecture:
-  resolve_console_script.py (runs INSIDE Resolve's Py3 console, has native API access)
-       | TCP port 9877 (JSON lines)
-       v
-  server.py (this file, asyncio event loop, WebSocket broadcast)
-       | WebSocket port 9876
-       v
-  browser clients (index.html) — also decode LTC audio locally for live playback
+Reads Resolve state from a file (written by resolve_console_script.py).
+Reads LTC timecode from ltc_listener.py via TCP.
+Broadcasts both to browser clients via WebSocket.
 """
 
 import asyncio
 import json
 import os
+import time
 
 from websockets.asyncio.server import serve
 
@@ -22,9 +18,10 @@ from websockets.asyncio.server import serve
 # ---------------------------------------------------------------------------
 HOST = os.environ.get("TC_BRIDGE_HOST", "0.0.0.0")
 PORT = int(os.environ.get("TC_BRIDGE_PORT", "9876"))
-RESOLVE_HOST = os.environ.get("TC_BRIDGE_RESOLVE_HOST", "localhost")
-RESOLVE_PORT = int(os.environ.get("TC_BRIDGE_RESOLVE_PORT", "9877"))
-VERSION = "2.0"
+LTC_HOST = os.environ.get("TC_BRIDGE_LTC_HOST", "localhost")
+LTC_PORT = int(os.environ.get("TC_BRIDGE_LTC_PORT", "9878"))
+STATE_FILE = "/tmp/tcb_resolve_state.json"
+VERSION = "2.1"
 
 # ---------------------------------------------------------------------------
 # WebSocket server
@@ -33,7 +30,6 @@ VERSION = "2.0"
 CLIENTS: set = set()
 _latest_timeline_info: str | None = None
 _latest_timecode: str | None = None
-_latest_markers: str | None = None
 
 
 async def broadcast(message: str) -> None:
@@ -48,15 +44,11 @@ async def handler(ws) -> None:
     CLIENTS.add(ws)
     print(f"[+] Client connected from {ws.remote_address} ({len(CLIENTS)} total)", flush=True)
     try:
-        # Send hello + cached state
         await ws.send(json.dumps({"type": "hello", "version": VERSION, "server": "TimecodeBridge"}))
         if _latest_timeline_info:
             await ws.send(_latest_timeline_info)
-        if _latest_markers:
-            await ws.send(_latest_markers)
         if _latest_timecode:
             await ws.send(_latest_timecode)
-
         async for _ in ws:
             pass
     except Exception as e:
@@ -67,22 +59,80 @@ async def handler(ws) -> None:
 
 
 # ---------------------------------------------------------------------------
-# TCP reader — connects to the Resolve console script
+# File watcher — reads Resolve state from file
 # ---------------------------------------------------------------------------
 
-async def read_resolve_tcp() -> None:
-    global _latest_timeline_info, _latest_timecode, _latest_markers
+async def watch_resolve_file() -> None:
+    global _latest_timeline_info, _latest_timecode
+
+    last_mtime = 0
+    last_tc = None
+    last_tl = None
 
     while True:
         try:
-            print(f"[resolve] Connecting to {RESOLVE_HOST}:{RESOLVE_PORT}...", flush=True)
-            reader, writer = await asyncio.open_connection(RESOLVE_HOST, RESOLVE_PORT)
-            print(f"[resolve] Connected!", flush=True)
+            mtime = os.path.getmtime(STATE_FILE)
+            if mtime > last_mtime:
+                last_mtime = mtime
+                with open(STATE_FILE, "r") as f:
+                    state = json.load(f)
+
+                # Timeline info changed
+                tl_name = state.get("timeline")
+                if tl_name != last_tl:
+                    last_tl = tl_name
+                    info = json.dumps({
+                        "type": "timeline_info",
+                        "project": state.get("project", ""),
+                        "timeline": tl_name,
+                        "fps": state.get("fps", 24),
+                        "startTC": state.get("startTC", "00:00:00:00"),
+                    })
+                    _latest_timeline_info = info
+                    print(f"[resolve] {state.get('project')} / {tl_name} @ {state.get('fps')}fps", flush=True)
+                    await broadcast(info)
+
+                # Timecode changed
+                tc = state.get("tc")
+                if tc and tc != last_tc:
+                    last_tc = tc
+                    msg = json.dumps({
+                        "type": "timecode",
+                        "tc": tc,
+                        "ts": state.get("ts", time.time()),
+                        "source": "api",
+                    })
+                    _latest_timecode = msg
+                    await broadcast(msg)
+
+        except FileNotFoundError:
+            pass
+        except (json.JSONDecodeError, OSError):
+            pass
+
+        await asyncio.sleep(0.05)  # check file every 50ms
+
+
+# ---------------------------------------------------------------------------
+# TCP reader — connects to the LTC listener
+# ---------------------------------------------------------------------------
+
+async def read_ltc_tcp() -> None:
+    global _latest_timecode
+
+    logged_once = False
+    while True:
+        try:
+            if not logged_once:
+                print(f"[ltc] Connecting to {LTC_HOST}:{LTC_PORT}...", flush=True)
+            reader, writer = await asyncio.open_connection(LTC_HOST, LTC_PORT)
+            logged_once = False
+            print(f"[ltc] Connected!", flush=True)
 
             while True:
                 line = await reader.readline()
                 if not line:
-                    print("[resolve] Connection closed by Resolve", flush=True)
+                    print("[ltc] Connection closed", flush=True)
                     break
 
                 raw = line.decode().strip()
@@ -94,27 +144,14 @@ async def read_resolve_tcp() -> None:
                 except json.JSONDecodeError:
                     continue
 
-                # Add source tag to timecode messages
-                msg_type = data.get("type")
-                if msg_type == "timecode":
-                    data["source"] = "api"
-                    raw = json.dumps(data)
+                if data.get("type") == "timecode":
                     _latest_timecode = raw
-                elif msg_type == "timeline_info":
-                    _latest_timeline_info = raw
-                    print(f"[resolve] {data.get('project')} / {data.get('timeline')} @ {data.get('fps')}fps", flush=True)
-                elif msg_type == "markers":
-                    _latest_markers = raw
-                    print(f"[resolve] {len(data.get('markers', []))} markers", flush=True)
-                elif msg_type == "error":
-                    print(f"[resolve] Error: {data.get('message')}", flush=True)
+                    await broadcast(raw)
 
-                await broadcast(raw)
-
-        except (ConnectionRefusedError, OSError) as e:
-            print(f"[resolve] Cannot reach Resolve console script ({e}). Retrying in 2s...", flush=True)
+        except (ConnectionRefusedError, OSError):
+            logged_once = True
         except Exception as e:
-            print(f"[resolve] Error: {e}. Retrying in 2s...", flush=True)
+            print(f"[ltc] Error: {e}", flush=True)
 
         await asyncio.sleep(2)
 
@@ -122,10 +159,12 @@ async def read_resolve_tcp() -> None:
 async def main() -> None:
     print(f"TimecodeBridge v{VERSION}", flush=True)
     print(f"WebSocket: ws://{HOST}:{PORT}", flush=True)
-    print(f"Resolve TCP: {RESOLVE_HOST}:{RESOLVE_PORT}", flush=True)
+    print(f"Resolve state file: {STATE_FILE}", flush=True)
+    print(f"LTC TCP: {LTC_HOST}:{LTC_PORT}", flush=True)
 
     async with serve(handler, HOST, PORT):
-        reader_task = asyncio.create_task(read_resolve_tcp())
+        resolve_task = asyncio.create_task(watch_resolve_file())
+        ltc_task = asyncio.create_task(read_ltc_tcp())
 
         print("Press Ctrl+C to stop.\n", flush=True)
 
@@ -134,7 +173,8 @@ async def main() -> None:
         except asyncio.CancelledError:
             pass
         finally:
-            reader_task.cancel()
+            resolve_task.cancel()
+            ltc_task.cancel()
 
 
 if __name__ == "__main__":

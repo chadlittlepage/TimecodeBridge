@@ -59,13 +59,22 @@ class LTCDecoder {
 
     // Get audio stream
     const constraints = { audio: deviceId
-      ? { deviceId: { exact: deviceId } }
-      : true
+      ? { deviceId: { exact: deviceId }, echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+      : { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
     };
+    console.log("[LTC] getUserMedia constraints:", JSON.stringify(constraints));
     this._stream = await navigator.mediaDevices.getUserMedia(constraints);
+    const tracks = this._stream.getAudioTracks();
+    for (const t of tracks) {
+      const settings = t.getSettings();
+      console.log("[LTC] Track label:", t.label);
+      console.log("[LTC] Track settings:", JSON.stringify(settings));
+      console.log("[LTC] Actual deviceId:", settings.deviceId);
+    }
 
     // Audio pipeline
     this._audioCtx = new AudioContext();
+    console.log("[LTC] AudioContext sample rate:", this._audioCtx.sampleRate);
     const source = this._audioCtx.createMediaStreamSource(this._stream);
 
     // ScriptProcessorNode: 1024 samples, mono input, no output
@@ -73,17 +82,21 @@ class LTCDecoder {
 
     // Create decoder at the capture sample rate
     this._decoder = this._wasmModule._ltc_dec_create(this._audioCtx.sampleRate);
+    console.log("[LTC] Decoder created:", this._decoder);
 
     // Pre-allocate WASM heap buffer for 1024 float32 samples
     this._bufferPtr = this._wasmModule._malloc(1024 * 4);
+    console.log("[LTC] Buffer allocated at:", this._bufferPtr);
 
     // Wire up audio processing
+    this._audioCallCount = 0;
     this._processor.onaudioprocess = (e) => this._onAudio(e);
     source.connect(this._processor);
     this._processor.connect(this._audioCtx.destination);
 
     this._active = true;
     this._startStaleCheck();
+    console.log("[LTC] Started, listening for LTC audio...");
   }
 
   /** Stop capturing. */
@@ -121,24 +134,36 @@ class LTCDecoder {
   async _loadWasm() {
     if (this._wasmModule) return;
 
+    const self = this;
     return new Promise((resolve, reject) => {
       // The ltcdec.js script sets up a global `Module` object.
       // We need to configure it before loading.
-      const prevModule = window.Module;
-
       window.Module = {
-        locateFile: (path) => WASM_DIR + path,
-        print: (line) => this._onWasmPrint(line),
+        locateFile: (path) => {
+          console.log("[LTC] locateFile:", path);
+          return WASM_DIR + path;
+        },
+        print: (line) => self._onWasmPrint(line),
         printErr: (line) => console.warn("[LTC.wasm]", line),
         onRuntimeInitialized: () => {
-          this._wasmModule = window.Module;
+          console.log("[LTC] WASM runtime initialized");
+          console.log("[LTC] Available functions:", {
+            create: typeof Module._ltc_dec_create,
+            write: typeof Module._ltc_dec_write,
+            free: typeof Module._ltc_dec_free,
+            malloc: typeof Module._malloc,
+          });
+          self._wasmModule = window.Module;
           resolve();
         },
       };
 
       const script = document.createElement("script");
       script.src = WASM_DIR + "ltcdec.js";
-      script.onerror = () => reject(new Error("Failed to load ltcdec.js"));
+      script.onerror = () => {
+        console.error("[LTC] Failed to load ltcdec.js from", WASM_DIR);
+        reject(new Error("Failed to load ltcdec.js"));
+      };
       document.head.appendChild(script);
     });
   }
@@ -169,6 +194,13 @@ class LTCDecoder {
 
     const input = event.inputBuffer.getChannelData(0);
     const M = this._wasmModule;
+
+    // Log first few callbacks to verify audio is flowing
+    this._audioCallCount = (this._audioCallCount || 0) + 1;
+    if (this._audioCallCount <= 5 || this._audioCallCount % 500 === 0) {
+      const maxVal = Math.max(...Array.from(input).map(Math.abs));
+      console.log(`[LTC] Audio callback #${this._audioCallCount}, max amplitude: ${maxVal.toFixed(6)}, samples: ${input.length}`);
+    }
 
     // Copy Float32 samples to WASM heap
     const heap = new Float32Array(M.HEAPU8.buffer, this._bufferPtr, 1024);

@@ -133,6 +133,14 @@
     .controls button.active:hover { background: #388e3c; }
 
     .controls label { color: #666; margin-right: 0.3rem; }
+
+    .copyright {
+      position: fixed;
+      bottom: 1rem;
+      right: 1rem;
+      font-size: 0.65rem;
+      color: #4a556c;
+    }
   </style>
 </head>
 <body>
@@ -155,12 +163,9 @@
       <input id="wsUrl" type="text" placeholder="ws://192.168.1.x:9876" />
       <button onclick="reconnectWS()">Connect</button>
     </div>
-    <div class="control-row">
-      <label>LTC:</label>
-      <select id="ltcDevice"><option value="">-- select audio device --</option></select>
-      <button id="ltcBtn" onclick="toggleLTC()">Enable LTC</button>
-    </div>
   </div>
+
+  <div class="copyright">&copy; 2026 Chad Littlepage</div>
 
   <script src="browser/ltc-decoder.js"></script>
   <script>
@@ -178,7 +183,7 @@
     // ---- State ----
     const state = {
       api: { tc: null, ts: 0 },
-      ltc: { tc: null, ts: 0, active: false, receiving: false },
+      ltc: { tc: null, ts: 0 },
     };
 
     let ws = null;
@@ -186,9 +191,11 @@
     const ltcDecoder = new LTCDecoder();
 
     // ---- Source merge ----
+    // LTC is preferred when fresh (< 500ms old).
+    // API is used when stopped/scrubbing (LTC goes stale).
     function updateDisplay() {
       const now = Date.now();
-      const ltcFresh = state.ltc.active && state.ltc.receiving;
+      const ltcFresh = (now - state.ltc.ts) < 500;
 
       let tc, source;
       if (ltcFresh) {
@@ -206,6 +213,9 @@
       badgeEl.textContent = source === "ltc" ? "LTC" : source === "api" ? "API" : "--";
       badgeEl.className = source;
     }
+
+    // Refresh display periodically so LTC→API fallback happens promptly when playback stops
+    setInterval(updateDisplay, 250);
 
     // ---- Path A: WebSocket ----
     function defaultWsUrl() {
@@ -247,8 +257,14 @@
         try { data = JSON.parse(event.data); } catch { return; }
 
         if (data.type === "timecode") {
-          state.api.tc = data.tc;
-          state.api.ts = Date.now();
+          const now = Date.now();
+          if (data.source === "ltc") {
+            state.ltc.tc = data.tc;
+            state.ltc.ts = now;
+          } else {
+            state.api.tc = data.tc;
+            state.api.ts = now;
+          }
           tcEl.classList.remove("stale");
           updateDisplay();
         } else if (data.type === "timeline_info") {
