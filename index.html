@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Timecode Bridge</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+
+    .container {
+      text-align: center;
+      max-width: 800px;
+      padding: 2rem;
+    }
+
+    h1 {
+      font-size: 1rem;
+      font-weight: 400;
+      color: #4a556c;
+      text-transform: uppercase;
+      letter-spacing: 0.3em;
+      margin-bottom: 2rem;
+    }
+
+    #timecode {
+      font-size: 6rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.05em;
+      color: #ffffff;
+      text-shadow: 0 0 30px rgba(74, 85, 108, 0.5);
+      transition: opacity 0.15s ease;
+      min-height: 7rem;
+    }
+
+    #timecode.stale {
+      opacity: 0.3;
+    }
+
+    .meta {
+      margin-top: 2rem;
+      font-size: 0.85rem;
+      color: #666;
+      line-height: 1.8;
+    }
+
+    .meta span {
+      color: #4a556c;
+    }
+
+    #status {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      font-size: 0.75rem;
+      padding: 0.4rem 0.8rem;
+      border-radius: 4px;
+      background: #2a2a3e;
+    }
+
+    #status.connected { color: #4caf50; }
+    #status.disconnected { color: #f44336; }
+    #status.connecting { color: #ff9800; }
+
+    .config {
+      position: fixed;
+      bottom: 1rem;
+      left: 1rem;
+      font-size: 0.75rem;
+      color: #444;
+    }
+
+    .config input {
+      background: #2a2a3e;
+      border: 1px solid #333;
+      color: #e0e0e0;
+      padding: 0.3rem 0.5rem;
+      border-radius: 3px;
+      font-family: inherit;
+      font-size: 0.75rem;
+      width: 220px;
+    }
+
+    .config button {
+      background: #4a556c;
+      border: none;
+      color: #fff;
+      padding: 0.3rem 0.8rem;
+      border-radius: 3px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.75rem;
+      margin-left: 0.3rem;
+    }
+
+    .config button:hover { background: #5a6580; }
+  </style>
+</head>
+<body>
+  <div id="status" class="connecting">connecting...</div>
+
+  <div class="container">
+    <h1>Timecode Bridge</h1>
+    <div id="timecode">--:--:--:--</div>
+    <div class="meta">
+      <div>Project: <span id="project">--</span></div>
+      <div>Timeline: <span id="timeline">--</span></div>
+      <div>FPS: <span id="fps">--</span></div>
+    </div>
+  </div>
+
+  <div class="config">
+    <input id="wsUrl" type="text" placeholder="ws://192.168.1.x:9876" />
+    <button onclick="reconnect()">Connect</button>
+  </div>
+
+  <script>
+    const tcEl = document.getElementById("timecode");
+    const statusEl = document.getElementById("status");
+    const projectEl = document.getElementById("project");
+    const timelineEl = document.getElementById("timeline");
+    const fpsEl = document.getElementById("fps");
+    const wsUrlInput = document.getElementById("wsUrl");
+
+    let ws = null;
+    let reconnectTimer = null;
+
+    // Default: connect to the host that served this page, port 9876
+    function defaultWsUrl() {
+      const host = location.hostname || "localhost";
+      return `ws://${host}:9876`;
+    }
+
+    // Load saved URL or use default
+    const savedUrl = localStorage.getItem("tc_bridge_url");
+    wsUrlInput.value = savedUrl || defaultWsUrl();
+
+    function setStatus(state, text) {
+      statusEl.className = state;
+      statusEl.textContent = text;
+    }
+
+    function connect(url) {
+      if (ws) {
+        ws.close();
+        ws = null;
+      }
+
+      setStatus("connecting", "connecting...");
+
+      try {
+        ws = new WebSocket(url);
+      } catch (e) {
+        setStatus("disconnected", "invalid URL");
+        return;
+      }
+
+      ws.onopen = () => {
+        setStatus("connected", "connected");
+        tcEl.classList.remove("stale");
+        localStorage.setItem("tc_bridge_url", url);
+      };
+
+      ws.onclose = () => {
+        setStatus("disconnected", "disconnected");
+        tcEl.classList.add("stale");
+        // Auto-reconnect after 2s
+        clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(() => connect(url), 2000);
+      };
+
+      ws.onerror = () => {
+        // onclose will fire after this
+      };
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        if (data.type === "timecode") {
+          tcEl.textContent = data.tc;
+          tcEl.classList.remove("stale");
+        } else if (data.type === "timeline_info") {
+          projectEl.textContent = data.project || "--";
+          timelineEl.textContent = data.timeline || "--";
+          fpsEl.textContent = data.fps || "--";
+        } else if (data.type === "error") {
+          tcEl.classList.add("stale");
+        }
+      };
+    }
+
+    function reconnect() {
+      const url = wsUrlInput.value.trim();
+      if (url) {
+        clearTimeout(reconnectTimer);
+        connect(url);
+      }
+    }
+
+    // Connect on load
+    connect(wsUrlInput.value);
+
+    // Allow Enter key in input
+    wsUrlInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") reconnect();
+    });
+  </script>
+</body>
+</html>
