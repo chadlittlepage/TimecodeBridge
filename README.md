@@ -90,6 +90,14 @@ See [docs/PROTOCOL.md](docs/PROTOCOL.md) for the full WebSocket protocol spec.
 
 \* LTC reverse playback is choppy — libltc decodes approximately half the frames when playing backwards. This is inherent to the LTC format (Manchester biphase encoding is designed for forward reading). Forward playback is frame-accurate. This matches the behavior of hardware LTC readers playing tape in reverse.
 
+## Author
+
+Created by Chad Littlepage
+chad.littlepage@gmail.com
+323.974.0444
+
+&copy; 2026 Chad Littlepage
+
 ## Project Structure
 
 ```

@@ -1,5 +1,10 @@
 # TimecodeBridge WebSocket Protocol v2.0
 
+Created by Chad Littlepage
+chad.littlepage@gmail.com | 323.974.0444
+
+&copy; 2026 Chad Littlepage
+
 Connect to `ws://<host>:9876`. All messages are JSON, one per WebSocket frame.
 
 ## Server → Client Messages

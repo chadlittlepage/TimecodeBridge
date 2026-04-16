@@ -1,5 +1,10 @@
 # TimecodeBridge Setup Guide
 
+Created by Chad Littlepage
+chad.littlepage@gmail.com | 323.974.0444
+
+&copy; 2026 Chad Littlepage
+
 ## Host Machine (runs DaVinci Resolve)
 
 ### Step 1: Install Homebrew (if not already installed)
