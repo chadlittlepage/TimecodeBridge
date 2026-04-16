@@ -201,11 +201,11 @@ def run_ltc_listener():
                 if stime.hours > 23 or stime.mins > 59 or stime.secs > 59 or stime.frame > 23:
                     continue
 
-                # Continuity filter: reject jumps > 2 seconds
+                # Continuity filter: reject random glitch decodes (> 10 sec jump)
                 current_frames = ((stime.hours * 60 + stime.mins) * 60 + stime.secs) * 24 + stime.frame
                 if last_tc_frames >= 0:
                     jump = abs(current_frames - last_tc_frames)
-                    if jump > 48 and jump < (24 * 3600 * 24 - 48):
+                    if jump > 240 and jump < (24 * 3600 * 24 - 240):
                         continue
                 last_tc_frames = current_frames
                 last_decode_time = time.time()
