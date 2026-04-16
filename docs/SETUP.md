@@ -5,165 +5,222 @@ chad.littlepage@gmail.com | 323.974.0444
 
 &copy; 2026 Chad Littlepage
 
+---
+
 ## Host Machine (runs DaVinci Resolve)
 
-### Step 1: Install Homebrew (if not already installed)
+### Step 1: Open Terminal
 
-Open Terminal and paste:
+Press **Cmd+Space**, type **Terminal**, press **Enter**.
+
+All commands below are pasted into this Terminal window.
+
+### Step 2: Install Homebrew (if not already installed)
+
+Paste this line and press Enter:
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```
 
-### Step 2: Install dependencies
+Follow the prompts. If Homebrew is already installed, this will tell you.
+
+### Step 3: Install required packages
+
+Paste each line one at a time and press Enter:
 
 ```bash
-brew install libltc ltc-tools ffmpeg
+brew install libltc
+```
+
+```bash
+brew install ltc-tools
+```
+
+```bash
+brew install ffmpeg
 ```
 
 ```bash
 brew install blackhole-2ch
 ```
 
-BlackHole requires your password. After install, **reboot your Mac** for the audio driver to load.
+BlackHole will ask for your password. After it finishes, **reboot your Mac**. Then come back to this guide and continue from Step 4.
 
-### Step 3: Install Python dependency
+### Step 4: Install Python dependency
+
+Open Terminal again after rebooting. Paste:
 
 ```bash
 pip install websockets
 ```
 
-If that fails, try:
+If that gives an error, try this instead:
+
+```bash
+pip3 install websockets
+```
+
+If that also fails, try:
 
 ```bash
 pip install --break-system-packages websockets
 ```
 
-### Step 4: Download TimecodeBridge
+### Step 5: Navigate to the TimecodeBridge folder
+
+If you placed TimecodeBridge in your Documents folder:
 
 ```bash
-cd ~/Documents
-git clone https://github.com/chadlittlepage/TimecodeBridge.git
-cd TimecodeBridge
+cd ~/Documents/TimecodeBridge
 ```
 
-Or if you already have it, navigate to the project folder:
+If you placed it somewhere else, replace the path. You must be in this folder for all remaining steps.
+
+To verify you're in the right folder, paste:
 
 ```bash
-cd /path/to/TimecodeBridge
+ls server.py
 ```
 
-### Step 5: Create Multi-Output Device
+It should print `server.py`. If it says "No such file", you're in the wrong folder.
+
+### Step 6: Create Multi-Output Device
 
 This lets you hear audio AND send it to BlackHole simultaneously.
 
-1. Open **Audio MIDI Setup** (press Cmd+Space, type "Audio MIDI Setup", hit Enter)
+1. Press **Cmd+Space**, type **Audio MIDI Setup**, press **Enter**
 2. In the bottom-left corner, click the **+** button
 3. Select **Create Multi-Output Device**
 4. In the right panel, check the boxes for:
    - **BlackHole 2ch**
-   - **MacBook Pro Speakers** (or your headphones/interface)
+   - **MacBook Pro Speakers** (or your headphones/audio interface)
 5. Click on **BlackHole 2ch** in the list and check **Drift Correction**
 6. Optionally, double-click the name "Multi-Output Device" to rename it (e.g. "Multi-Output Blackhole")
 
-### Step 6: Set Resolve audio output
+### Step 7: Set Resolve audio output
 
-1. Open DaVinci Resolve
-2. Go to **DaVinci Resolve > Preferences** (Cmd+,)
+1. Open **DaVinci Resolve**
+2. Go to **DaVinci Resolve > Preferences** (or press **Cmd+,**)
 3. Click **Video and Audio I/O** in the left sidebar
-4. Under **Audio I/O**, set **Output device** to your Multi-Output Device
+4. Under **Audio I/O**, change **Output device** to your Multi-Output Device
 5. Click **Save**
 
-### Step 7: Generate an LTC audio file
+### Step 8: Generate an LTC audio file
 
-Match the start timecode and frame rate to your timeline:
-
-```bash
-python ltc_gen.py --start 01:00:00:00 --fps 24 --duration 3h -o LTC_24fps_01h.wav
-```
-
-Other examples:
+You must be in the TimecodeBridge folder (Step 5). If you're not sure, paste:
 
 ```bash
-# 23.976 fps, starting at 00:00:00:00
-python ltc_gen.py --start 00:00:00:00 --fps 23.976 --duration 3h -o LTC_23976.wav
-
-# 29.97 drop-frame
-python ltc_gen.py --start 01:00:00:00 --fps 29.97 --drop --duration 2h -o LTC_2997df.wav
-
-# 25 fps (PAL)
-python ltc_gen.py --start 10:00:00:00 --fps 25 --duration 4h -o LTC_25fps.wav
+cd ~/Documents/TimecodeBridge
 ```
 
-### Step 8: Place LTC audio on your timeline
+Now generate the LTC wav file. Change the start timecode (`--start`) and frame rate (`--fps`) to match YOUR timeline:
+
+```bash
+python ltc_gen.py --start 01:00:00:00 --fps 24 --duration 3h -o LTC_24fps_01h00m00s00f.wav
+```
+
+This takes about 60 seconds. When it finishes, the wav file will be in the TimecodeBridge folder.
+
+**Other frame rate examples** (paste the one that matches your timeline):
+
+23.976 fps, starting at 01:00:00:00:
+```bash
+python ltc_gen.py --start 01:00:00:00 --fps 23.976 --duration 3h -o LTC_23976fps_01h00m00s00f.wav
+```
+
+23.976 fps, starting at 00:00:00:00:
+```bash
+python ltc_gen.py --start 00:00:00:00 --fps 23.976 --duration 3h -o LTC_23976fps_00h00m00s00f.wav
+```
+
+25 fps (PAL), starting at 01:00:00:00:
+```bash
+python ltc_gen.py --start 01:00:00:00 --fps 25 --duration 3h -o LTC_25fps_01h00m00s00f.wav
+```
+
+29.97 fps drop-frame, starting at 01:00:00:00:
+```bash
+python ltc_gen.py --start 01:00:00:00 --fps 29.97 --drop --duration 3h -o LTC_2997fps_DF_01h00m00s00f.wav
+```
+
+30 fps, starting at 01:00:00:00:
+```bash
+python ltc_gen.py --start 01:00:00:00 --fps 30 --duration 3h -o LTC_30fps_01h00m00s00f.wav
+```
+
+### Step 9: Place LTC audio on your timeline
 
 1. In Resolve, open your project
-2. Import the LTC wav file into the **Media Pool** (drag it in or File > Import Media)
+2. Drag the LTC wav file from Finder into the **Media Pool**
 3. Switch to the **Edit** or **Fairlight** page
-4. Drag the LTC wav onto an audio track
-5. Position it so it starts at the beginning of your timeline
-6. The timecode baked into the wav must match your timeline's start timecode
+4. Drag the LTC wav from the Media Pool onto an audio track
+5. Position it so it starts at the very beginning of your timeline
+6. The start timecode baked into the wav file must match your timeline's start timecode
 
-### Step 9: Find your BlackHole device index
+### Step 10: Find your BlackHole device index
+
+In Terminal (make sure you're in the TimecodeBridge folder), paste:
 
 ```bash
 ffmpeg -f avfoundation -list_devices true -i "" 2>&1 | grep BlackHole
 ```
 
-Look for the number in brackets, e.g. `[10] BlackHole 2ch`. The default is 10. If yours is different, you'll need to set it:
+You'll see something like: `[10] BlackHole 2ch`
+
+The number in brackets is your device index. The default is **10**. If yours is different, paste this (replacing `10` with your number):
 
 ```bash
 export LTC_AUDIO_DEVICE=10
 ```
 
-Replace `10` with your actual device number.
+### Step 11: Start TimecodeBridge
 
-### Step 10: Start TimecodeBridge
+Make sure you're in the TimecodeBridge folder, then paste:
 
 ```bash
 ./start.sh
 ```
 
-This starts three services:
-- WebSocket server on port 9876
-- LTC listener (captures BlackHole audio and decodes timecode)
-- HTTP server on port 8080 (serves the browser client)
+You'll see three services start. Leave this Terminal window open and running.
 
-### Step 11: Connect Resolve
+### Step 12: Connect Resolve
 
 1. In Resolve, go to **Workspace > Console**
-2. Click the **Py3** tab
-3. Paste this line and press Enter:
+2. Click the **Py3** tab at the top of the console
+3. Paste this line and press Enter (change the path to match where you put TimecodeBridge):
 
 ```python
-exec(open("/path/to/TimecodeBridge/resolve_console_script.py").read())
+exec(open("/Users/YOURUSERNAME/Documents/TimecodeBridge/resolve_console_script.py").read())
 ```
 
-Replace `/path/to/TimecodeBridge` with your actual path. For example:
+Replace `YOURUSERNAME` with your Mac username. For example:
 
 ```python
-exec(open("/Users/yourname/Documents/TimecodeBridge/resolve_console_script.py").read())
+exec(open("/Users/chad/Documents/TimecodeBridge/resolve_console_script.py").read())
 ```
 
 You should see: `[TCB] Writing state to /tmp/tcb_resolve_state.json`
 
-### Step 12: Open the browser client
+### Step 13: Open the browser client
 
-Open a browser and go to:
+Open a web browser (Chrome, Safari, or Firefox) and go to:
 
 ```
 http://localhost:8080
 ```
 
-You should see the Timecode Bridge display. Scrub the timeline to verify it works, then press play.
+You should see the Timecode Bridge display. Scrub the timeline to verify it works (you should see the timecode update with an **API** badge). Then press play (timecode should update with an **LTC** badge).
 
-### Step 13: Find your Host IP (for client machines)
+### Step 14: Find your Host IP (for client machines)
+
+In a new Terminal tab (Cmd+T), paste:
 
 ```bash
 ipconfig getifaddr en0
 ```
 
-Note this IP address — client machines will need it.
+Write down this IP address. Client machines will need it.
 
 ---
 
@@ -174,34 +231,30 @@ The client machine needs **nothing installed**. Just a web browser.
 ### Option A: Browser (zero install)
 
 1. Open any web browser (Chrome, Safari, Firefox)
-2. Navigate to:
-
-```
-http://<HOST-IP>:8080
-```
-
-Replace `<HOST-IP>` with the Host machine's IP address from Step 13 above. For example:
+2. In the address bar, type the Host machine's IP address with port 8080:
 
 ```
 http://192.168.1.100:8080
 ```
 
-3. If the WebSocket URL doesn't auto-connect, type in the bottom-left field:
+Replace `192.168.1.100` with the actual Host IP from Step 14.
+
+3. If the timecode display shows "disconnected", type the WebSocket URL in the bottom-left field:
 
 ```
-ws://<HOST-IP>:9876
+ws://192.168.1.100:9876
 ```
 
-And click **Connect**.
+Replace `192.168.1.100` with the actual Host IP. Click **Connect**.
 
 ### Option B: Custom JavaScript app
 
-Add one script tag to your HTML:
+Copy the file `lib/tcbridge.js` from the TimecodeBridge folder to your project. Then add to your HTML:
 
 ```html
-<script src="http://<HOST-IP>:8080/lib/tcbridge.js"></script>
+<script src="tcbridge.js"></script>
 <script>
-  const bridge = new TimecodeBridge("ws://<HOST-IP>:9876");
+  const bridge = new TimecodeBridge("ws://192.168.1.100:9876");
 
   bridge.on("timecode", (data) => {
     console.log(data.tc);      // "01:02:03:04"
@@ -216,20 +269,24 @@ Add one script tag to your HTML:
 </script>
 ```
 
-Or copy `lib/tcbridge.js` to your project (zero dependencies, ~100 lines).
+Replace `192.168.1.100` with the Host IP. Zero dependencies, ~100 lines of code.
 
 ### Option C: Custom Python app
 
-Copy `lib/tcbridge.py` to your project, then:
+Copy the file `lib/tcbridge.py` from the TimecodeBridge folder to your project.
+
+Install the dependency:
 
 ```bash
 pip install websockets
 ```
 
+Then in your Python code:
+
 ```python
 from tcbridge import TimecodeBridge
 
-bridge = TimecodeBridge("ws://<HOST-IP>:9876")
+bridge = TimecodeBridge("ws://192.168.1.100:9876")
 bridge.on_timecode = lambda tc, source: print(f"{tc} [{source}]")
 bridge.on_timeline = lambda info: print(f"{info['project']} / {info['timeline']}")
 bridge.start()  # runs in background thread
@@ -237,9 +294,11 @@ bridge.start()  # runs in background thread
 # Your app code here...
 ```
 
+Replace `192.168.1.100` with the Host IP.
+
 ### Option D: Any language (raw WebSocket)
 
-Connect a WebSocket to `ws://<HOST-IP>:9876`. Messages are JSON:
+Connect a WebSocket to `ws://192.168.1.100:9876` (replace with Host IP). Messages are JSON:
 
 ```json
 {"type": "timecode", "tc": "01:02:03:04", "ts": 1713200000.123, "source": "ltc"}
@@ -254,10 +313,17 @@ See [PROTOCOL.md](PROTOCOL.md) for the full spec.
 
 On the **Host machine**, each time you open Resolve:
 
-1. Start TimecodeBridge: `./start.sh`
-2. In Resolve Console (Py3), paste the `exec(open(...))` line
-3. Verify: scrub the playhead, browser should update
-4. Press play, browser should show LTC (green badge)
+1. Open Terminal, navigate to TimecodeBridge folder:
+   ```bash
+   cd ~/Documents/TimecodeBridge
+   ```
+2. Start the bridge:
+   ```bash
+   ./start.sh
+   ```
+3. In Resolve Console (**Workspace > Console > Py3**), paste the `exec(open(...))` line
+4. Verify: scrub the playhead, browser should update (API badge)
+5. Press play, browser should show real-time timecode (LTC badge)
 
 On **Client machines**: just open the browser URL. It auto-reconnects.
 
@@ -277,15 +343,24 @@ On **Client machines**: just open the browser URL. It auto-reconnects.
 ### No timecode during playback
 - Is the LTC wav on the timeline and covering the current playhead position?
 - Is Resolve's output device set to the Multi-Output Device?
-- Check BlackHole device index: `ffmpeg -f avfoundation -list_devices true -i "" 2>&1 | grep BlackHole`
-- If device index is not 10: `export LTC_AUDIO_DEVICE=<your-index>` before running `./start.sh`
+- Check BlackHole device index:
+  ```bash
+  ffmpeg -f avfoundation -list_devices true -i "" 2>&1 | grep BlackHole
+  ```
+- If device index is not 10, set it before running start.sh:
+  ```bash
+  export LTC_AUDIO_DEVICE=YOUR_NUMBER
+  ```
 
 ### Timecode glitches during playback
 - Solo the LTC audio track in Fairlight (click S on the track header)
 - Make sure the LTC wav frame rate matches your timeline frame rate
 
 ### Client can't connect from another machine
-- Check the Host IP: `ipconfig getifaddr en0`
+- Check the Host IP:
+  ```bash
+  ipconfig getifaddr en0
+  ```
 - Allow Python through the firewall:
   ```bash
   sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add $(which python3)
@@ -298,3 +373,4 @@ On **Client machines**: just open the browser URL. It auto-reconnects.
   pkill -f "python.*server\.py"
   pkill -f "python.*ltc_listener\.py"
   ```
+  Then run `./start.sh` again.
