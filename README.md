@@ -1,3 +1,5 @@
+![TimecodeBridge](hero.png)
+
 # TimecodeBridge
 
 Real-time DaVinci Resolve timecode over WebSocket for browsers on your LAN.
