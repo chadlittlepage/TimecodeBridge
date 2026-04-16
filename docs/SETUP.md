@@ -108,44 +108,48 @@ This lets you hear audio AND send it to BlackHole simultaneously.
 
 ### Step 8: Generate an LTC audio file
 
-You must be in the TimecodeBridge folder (Step 5). If you're not sure, paste:
+Open Terminal. Paste these two lines (change the path if your TimecodeBridge folder is somewhere else):
 
 ```bash
 cd ~/Documents/APPs/TimecodeBridge
-```
-
-Now generate the LTC wav file. Change the start timecode (`--start`) and frame rate (`--fps`) to match YOUR timeline:
-
-```bash
 python3 ltc_gen.py --start 01:00:00:00 --fps 24 --duration 3h -o LTC_24fps_01h00m00s00f.wav
 ```
 
+Change `--start` to match your timeline's start timecode.
+Change `--fps` to match your timeline's frame rate.
+Change `--duration` to cover your timeline length.
+
 This takes about 60 seconds. When it finishes, the wav file will be in the TimecodeBridge folder.
 
-**Other frame rate examples** (paste the one that matches your timeline):
+**Other frame rate examples** (paste both lines for the one that matches your timeline):
 
 23.976 fps, starting at 01:00:00:00:
 ```bash
+cd ~/Documents/APPs/TimecodeBridge
 python3 ltc_gen.py --start 01:00:00:00 --fps 23.976 --duration 3h -o LTC_23976fps_01h00m00s00f.wav
 ```
 
 23.976 fps, starting at 00:00:00:00:
 ```bash
+cd ~/Documents/APPs/TimecodeBridge
 python3 ltc_gen.py --start 00:00:00:00 --fps 23.976 --duration 3h -o LTC_23976fps_00h00m00s00f.wav
 ```
 
 25 fps (PAL), starting at 01:00:00:00:
 ```bash
+cd ~/Documents/APPs/TimecodeBridge
 python3 ltc_gen.py --start 01:00:00:00 --fps 25 --duration 3h -o LTC_25fps_01h00m00s00f.wav
 ```
 
 29.97 fps drop-frame, starting at 01:00:00:00:
 ```bash
+cd ~/Documents/APPs/TimecodeBridge
 python3 ltc_gen.py --start 01:00:00:00 --fps 29.97 --drop --duration 3h -o LTC_2997fps_DF_01h00m00s00f.wav
 ```
 
 30 fps, starting at 01:00:00:00:
 ```bash
+cd ~/Documents/APPs/TimecodeBridge
 python3 ltc_gen.py --start 01:00:00:00 --fps 30 --duration 3h -o LTC_30fps_01h00m00s00f.wav
 ```
 
