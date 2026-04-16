@@ -69,13 +69,13 @@ pip install --break-system-packages websockets
 
 ### Step 5: Navigate to the TimecodeBridge folder
 
-If you placed TimecodeBridge in your Documents folder:
+In Terminal, navigate to wherever you placed the TimecodeBridge folder. For example:
 
 ```bash
 cd ~/Documents/APPs/TimecodeBridge
 ```
 
-If you placed it somewhere else, replace the path. You must be in this folder for all remaining steps.
+**IMPORTANT:** You must be in this folder for ALL remaining Terminal commands. If you open a new Terminal window, paste this `cd` line again first.
 
 To verify you're in the right folder, paste:
 
