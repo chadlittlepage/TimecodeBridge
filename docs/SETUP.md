@@ -72,7 +72,7 @@ pip install --break-system-packages websockets
 If you placed TimecodeBridge in your Documents folder:
 
 ```bash
-cd ~/Documents/TimecodeBridge
+cd ~/Documents/APPs/TimecodeBridge
 ```
 
 If you placed it somewhere else, replace the path. You must be in this folder for all remaining steps.
@@ -111,7 +111,7 @@ This lets you hear audio AND send it to BlackHole simultaneously.
 You must be in the TimecodeBridge folder (Step 5). If you're not sure, paste:
 
 ```bash
-cd ~/Documents/TimecodeBridge
+cd ~/Documents/APPs/TimecodeBridge
 ```
 
 Now generate the LTC wav file. Change the start timecode (`--start`) and frame rate (`--fps`) to match YOUR timeline:
@@ -315,7 +315,7 @@ On the **Host machine**, each time you open Resolve:
 
 1. Open Terminal, navigate to TimecodeBridge folder:
    ```bash
-   cd ~/Documents/TimecodeBridge
+   cd ~/Documents/APPs/TimecodeBridge
    ```
 2. Start the bridge:
    ```bash
